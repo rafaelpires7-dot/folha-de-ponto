@@ -34,7 +34,7 @@ table.g{width:100%;border-collapse:collapse;font-size:13px}
 .g input,.g select{padding:5px 7px;width:100%;min-width:92px}
 .g tr.hoje td{background:#eaf2ff}
 .bd{display:inline-block;padding:2px 8px;border-radius:99px;font-size:11px;font-weight:700;background:#eef2f8;color:var(--n7)}
-.bd.D{background:#e0efff;color:#1d5fc4}.bd.N{background:#e6e3f8;color:#4a3fa8}.bd.C{background:#fff3d9;color:#9a6b0b}.bd.F{background:#e4f5ec;color:#177a52}
+.bd.D{background:#e0efff;color:#1d5fc4}.bd.N{background:#e6e3f8;color:#4a3fa8}.bd.C{background:#fff3d9;color:#9a6b0b}.bd.M{background:#d8f0f5;color:#0b6b7a}.bd.F{background:#e4f5ec;color:#177a52}
 .grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(240px,1fr));gap:12px}
 label.f{display:flex;flex-direction:column;gap:5px;font-size:12px;font-weight:600;color:var(--ts)}
 #login{min-height:100vh;display:flex;align-items:center;justify-content:center;padding:20px;background:linear-gradient(160deg,var(--n9),var(--n7))}
@@ -86,7 +86,7 @@ async function api(fn,args){let r,j=null;
   try{j=await r.json()}catch(e){}
   if(!r.ok)throw new Error((j&&j.message)||'Erro no servidor ('+r.status+').');
   if(j&&j.erro)throw new Error(j.erro);return j}
-let CFG={},USERS=[],LIST=[],ME=null,REG={},SRV={hoje:iso(new Date()),h:new Date().getHours()};
+let CFG={},USERS=[],LIST=[],ME=null,REG={},REGIM=[],SRV={hoje:iso(new Date()),h:new Date().getHours()};
 function defPeriod(){const t=new Date();let y=t.getFullYear(),m=t.getMonth()+1;if(t.getDate()<16){m--;if(!m){m=12;y--}}return y+'-'+p2(m)}
 let S={tab:'colab',ym:defPeriod(),uid:'',rep:''};
 let SES=null;try{SES=JSON.parse(sessionStorage.getItem('pt_ses'))}catch(e){}
@@ -101,8 +101,11 @@ async function loadRegs(alvo,ini,fim){const j=await api('pt_registros',{...cred(
   SRV={hoje:j.hoje,h:j.h};if(alvo==='*')REG={};else delete REG[alvo];
   j.rows.forEach(x=>{(REG[x.colab_id]=REG[x.colab_id]||{})[x.dia]=x})}
 const perLbl=ym=>{const[y,m]=ym.split('-').map(Number);return MES[m-1].toUpperCase()+' / '+MES[m%12].toUpperCase()};
-function escala(letra,d){const off={A:0,B:2,C:4,D:6}[letra];if(off==null)return'';let p=(Math.round((new Date(d+'T12:00')-new Date(String(CFG.base).slice(0,10)+'T12:00'))/864e5)-off)%8;if(p<0)p+=8;return p<2?'D':p<4?'N':p==4?'C':'F'}
+function regime(u,d){const l=REGIM.filter(x=>x.colab_id===u.id&&x.de<=d).sort((a,b)=>a.de<b.de?1:-1)[0];return l?l.regime:(u.letra||'')}
+function escala(u,d){const rg=regime(u,d);if(rg==='ADM'){const w=new Date(d+'T12:00').getDay();return w===0||w===6?'F':'M'}
+  const off={A:0,B:2,C:4,D:6}[rg];if(off==null)return'';let p=(Math.round((new Date(d+'T12:00')-new Date(String(CFG.base).slice(0,10)+'T12:00'))/864e5)-off)%8;if(p<0)p+=8;return p<2?'D':p<4?'N':p==4?'C':'F'}
 const EL={D:'Dia 07–19',N:'Noite 19–07',C:'Compensação',F:'Folga'};
+const elab=e=>e==='M'?'ADM '+(CFG.adm_ent||'08:00')+'–'+(CFG.adm_sai||'17:00'):(EL[e]||'');
 const dayLbl=d=>{const t=new Date(d+'T12:00');return`<b>${p2(t.getDate())}/${MES[t.getMonth()]}</b> <span class="mut">${WD[t.getDay()]}</span>`};
 const topbar=sub=>`<div class="top"><img src="${LW}" alt="LMI"><div><div class="t">Folha de Ponto Digital</div><div class="s">${esc(sub)}</div></div><div class="sp"></div><button class="btn gh" onclick="sair()">Sair</button></div>`;
 const perSel=()=>`<span class="mut">Período iniciado em</span><input type="month" value="${S.ym}" onchange="S.ym=this.value||S.ym;render()">`;
@@ -114,7 +117,7 @@ function loginView(){$('#app').innerHTML='';$('#pa').innerHTML='';$('#login').st
   $('#lsel').innerHTML=LIST.map(u=>`<option value="${esc(u.id)}">${esc(u.nome)}</option>`).join('')+'<option value="__admin">🔒 Administrador</option>';
   $('#lpw').value='';$('#lerr').textContent=''}
 async function abrir(s){const j=await api('pt_entrar',{p_id:s.id,p_senha:s.senha});
-  setSes({role:j.role,id:s.id,senha:s.senha});CFG=j.cfg;
+  setSes({role:j.role,id:s.id,senha:s.senha});CFG=j.cfg;REGIM=j.regimes||[];
   if(j.role==='admin'){USERS=j.users;ME=null}else{ME=j.user;USERS=[j.user]}
   $('#login').style.display='none';await render()}
 async function entrar(){const id=$('#lsel').value,pw=$('#lpw').value;$('#lerr').textContent='Entrando…';
@@ -128,37 +131,37 @@ async function init(){$('#login').style.display='flex';
 
 /* ---------- colaborador ---------- */
 function target(r,fs){const k=SRV.hoje,y=iso(new Date(new Date(k+'T12:00')-864e5));
-  if(fs[0]==='ent'&&!(r[k]&&r[k].ent)&&r[y]&&r[y].ent&&!r[y].sai&&SRV.h<12)return[y,'sai'];
+  if(fs[0]==='ent'&&!(r[k]&&r[k].ent)&&r[y]&&r[y].ent&&!r[y].sai&&SRV.h<12&&['N',''].includes(escala(ME,y)))return[y,'sai'];
   const d=r[k]||{},f=fs.find(x=>!d[x]);return f?[k,f]:null}
 async function marcar(he){try{const j=await api('pt_marcar',{...cred(),p_he:!!he});toast(FN[j.campo]+' registrada às '+j.hora)}catch(e){toast(e.message)}await render()}
 async function setMyObs(d,v){try{await api('pt_obs',{...cred(),p_dia:d,p_texto:v});const r=REG[ME.id]=REG[ME.id]||{};r[d]={...(r[d]||{}),obs:v};toast('Salvo')}catch(e){toast(e.message)}}
 async function userView(){const u=ME;if(!u)return sair();carregando(u.nome);
   try{const[a,b]=rng();await loadRegs(u.id,a,b)}catch(e){return falha(e,u.nome)}
   const r=reg(u.id),tn=SRV.hoje,b1=target(r,['ent','sai']),b2=target(r,['he1','he2']);
-  const rows=periodDays(S.ym).map(d=>{const x=r[d]||{},e=escala(u.letra,d);
-    return`<tr class="${d===tn?'hoje':''}"><td>${dayLbl(d)}</td><td>${e?`<span class="bd ${e}">${EL[e]}</span>`:''}</td><td>${x.ent||'—'}</td><td>${x.sai||'—'}</td><td>${x.he1||'—'}</td><td>${x.he2||'—'}</td><td><input style="min-width:250px" maxlength="60" placeholder="Motivo da hora extra, se houver" value="${esc(x.obs||'')}" onchange="setMyObs('${d}',this.value)"></td></tr>`}).join('');
+  const rows=periodDays(S.ym).map(d=>{const x=r[d]||{},e=escala(u,d);
+    return`<tr class="${d===tn?'hoje':''}"><td>${dayLbl(d)}</td><td>${e?`<span class="bd ${e}">${elab(e)}</span>`:''}</td><td>${x.ent||'—'}</td><td>${x.sai||'—'}</td><td>${x.he1||'—'}</td><td>${x.he2||'—'}</td><td><input style="min-width:250px" maxlength="60" placeholder="Motivo da hora extra, se houver" value="${esc(x.obs||'')}" onchange="setMyObs('${d}',this.value)"></td></tr>`}).join('');
   $('#app').innerHTML=topbar(u.nome)+`<div class="wrap">
-  <div class="card"><div class="row"><div><h2>Olá, ${esc(u.nome)}</h2><div class="mut">Hoje: ${tn.split('-').reverse().join('/')} · o horário é registrado pelo servidor</div></div><div class="sp"></div>
+  <div class="card"><div class="row"><div><h2>Olá, ${esc(u.nome)}</h2><div class="mut">Hoje: ${tn.split('-').reverse().join('/')} · ${elab(escala(u,tn))||'sem escala'} · horário registrado pelo servidor</div></div><div class="sp"></div>
   <button class="btn pri big" ${b1?'':'disabled'} onclick="marcar(0)">${b1?'Registrar '+FN[b1[1]]+(b1[0]!==tn?' (turno de ontem)':''):'Dia completo ✔'}</button>
   <button class="btn" ${b2?'':'disabled'} onclick="marcar(1)">${b2?'Registrar '+FN[b2[1]]:'Hora extra completa'}</button></div></div>
   <div class="card"><div class="row"><h3>Meus registros · ${perLbl(S.ym)}</h3><div class="sp"></div>${perSel()}<button class="btn" onclick="pdf('${u.id}')">Gerar PDF</button><button class="btn" onclick="csv()">Baixar CSV</button></div>
   <div class="scroll"><table class="g"><thead><tr><th>Dia</th><th>Escala</th><th>Entrada</th><th>Saída</th><th>HE entrada</th><th>HE saída</th><th>Observação (motivo da hora extra)</th></tr></thead><tbody>${rows}</tbody></table></div></div></div>`}
 
 /* ---------- administrador ---------- */
-async function adminView(){const T={colab:['Colaboradores',tColab],reg:['Registros',tReg],rel:['Relatório PDF',tRel],cfg:['Configurações',tCfg]};
+async function adminView(){const T={colab:['Colaboradores',()=>tColab()+tRegimes()],reg:['Registros',tReg],rel:['Relatório PDF',tRel],cfg:['Configurações',tCfg]};
   carregando('Administrador');
   if(S.tab==='reg'){const u=USERS.find(x=>x.id===S.uid)||USERS[0];if(u){S.uid=u.id;try{const[a,b]=rng();await loadRegs(u.id,a,b)}catch(e){return falha(e,'Administrador')}}}
   $('#app').innerHTML=topbar('Administrador')+`<div class="wrap"><div class="tabs">${Object.entries(T).map(([k,v])=>`<button class="tab ${S.tab===k?'on':''}" onclick="S.tab='${k}';render()">${v[0]}</button>`).join('')}</div>${T[S.tab][1]()}</div>`}
 function tColab(){return`<div class="card"><div class="row"><h3>Colaboradores (${USERS.length})</h3><div class="sp"></div><button class="btn pri" onclick="addU()">+ Novo colaborador</button></div>
   <div class="scroll"><table class="g"><thead><tr><th>ID</th><th>Nome</th><th>Função</th><th>Área</th><th>Letra</th><th>Senha</th><th></th></tr></thead><tbody>${USERS.map(u=>`<tr><td>${esc(u.id)}</td>${['nome','funcao','area'].map(k=>`<td><input value="${esc(u[k])}" onchange="upU('${u.id}','${k}',this.value)"></td>`).join('')}
-  <td><select onchange="upU('${u.id}','letra',this.value)">${['','A','B','C','D'].map(l=>`<option ${u.letra===l?'selected':''}>${l}</option>`).join('')}</select></td>
+  <td><select onchange="upU('${u.id}','letra',this.value)">${['','A','B','C','D','ADM'].map(l=>`<option ${u.letra===l?'selected':''}>${l}</option>`).join('')}</select></td>
   <td><button class="btn sm" onclick="senhaU('${u.id}')">Redefinir senha</button></td><td><button class="btn sm dg" onclick="delU('${u.id}')">Remover</button></td></tr>`).join('')}</tbody></table></div>
   <p class="mut" style="margin:12px 0 0">As senhas ficam criptografadas no banco: dá para redefinir, mas não para consultar a senha atual.</p></div>`}
 async function upU(id,k,v){try{await adm('colab',id,k,v);USERS.find(x=>x.id===id)[k]=v;toast('Salvo')}catch(e){toast(e.message);render()}}
 async function addU(){try{const j=await adm('novo');USERS.push({id:j.id,nome:j.nome,funcao:'',area:'',letra:'A'});USERS.sort((a,b)=>a.id.localeCompare(b.id));alert('Colaborador '+j.id+' criado.\nSenha inicial: '+j.senha+'\n\nAnote e, se quiser, redefina em "Redefinir senha".');render()}catch(e){toast(e.message)}}
 async function senhaU(id){const u=USERS.find(x=>x.id===id),n=prompt('Nova senha para '+u.nome+' (mínimo 4 caracteres):');if(!n)return;try{await adm('senha',id,n);toast('Senha alterada')}catch(e){toast(e.message)}}
 async function delU(id){const u=USERS.find(x=>x.id===id);if(!u||!confirm('Remover '+u.nome+' e TODOS os registros de ponto dele(a)? Esta ação não pode ser desfeita.'))return;
-  try{await adm('remover',id);USERS=USERS.filter(x=>x.id!==id);delete REG[id];render()}catch(e){toast(e.message)}}
+  try{await adm('remover',id);USERS=USERS.filter(x=>x.id!==id);REGIM=REGIM.filter(x=>x.colab_id!==id);delete REG[id];render()}catch(e){toast(e.message)}}
 const uOpts=(sel,all)=>(all?`<option value="*" ${sel==='*'?'selected':''}>Todos os colaboradores</option>`:'')+USERS.map(x=>`<option value="${esc(x.id)}" ${x.id===sel?'selected':''}>${esc(x.nome)}</option>`).join('');
 function tReg(){const u=USERS.find(x=>x.id===S.uid)||USERS[0];if(!u)return'<div class="card">Cadastre um colaborador.</div>';const r=reg(u.id);
   return`<div class="card"><div class="row"><h3>Editar registros</h3><div class="sp"></div><select onchange="S.uid=this.value;render()">${uOpts(u.id)}</select><input type="month" value="${S.ym}" onchange="S.ym=this.value||S.ym;render()"></div>
@@ -171,24 +174,46 @@ function tRel(){S.rep=S.rep||(USERS[0]||{}).id||'';
   <label class="f">Período iniciado em<input type="month" value="${S.ym}" onchange="S.ym=this.value||S.ym"></label></div>
   <button class="btn pri big" onclick="pdf(S.rep)">Gerar PDF</button></div>`}
 function tCfg(){const f=(k,l,t='text')=>`<label class="f">${l}<input type="${t}" value="${esc(String(CFG[k]||'').slice(0,t==='date'?10:999))}" onchange="cfgSet('${k}',this.value)"></label>`;
-  return`<div class="card"><h3>Cabeçalho do relatório e acesso</h3><div class="grid" style="margin-top:12px">${f('empresa','Empresa')}${f('endereco','Endereço')}${f('cnpj','CNPJ')}${f('titulo','Título do relatório')}${f('base','Data-base da escala (início do ciclo da letra A)','date')}
+  return`<div class="card"><h3>Cabeçalho do relatório e acesso</h3><div class="grid" style="margin-top:12px">${f('empresa','Empresa')}${f('endereco','Endereço')}${f('cnpj','CNPJ')}${f('titulo','Título do relatório')}${f('base','Data-base da escala (início do ciclo da letra A)','date')}${f('adm_ent','Jornada ADM · entrada','time')}${f('adm_sai','Jornada ADM · saída','time')}
   <label class="f">Nova senha do administrador<input type="password" autocomplete="new-password" placeholder="Digite para trocar" onchange="admSenha(this)"></label></div></div>
-  <div class="card"><h3>Backup dos dados</h3><p class="mut">Os dados ficam no Supabase e aparecem em todos os aparelhos. Se quiser uma cópia, exporte um arquivo.</p><div class="row"><button class="btn" onclick="bkp()">Exportar backup (.json)</button></div></div>`}
+  <div class="card"><h3>Backup dos dados</h3><p class="mut">Os dados ficam no Supabase e aparecem em todos os aparelhos. Se quiser uma cópia, exporte um arquivo.</p><div class="row"><button class="btn" onclick="bkp()">Exportar backup (.json)</button><label class="btn">Importar backup (.json)<input type="file" accept=".json,application/json" hidden onchange="imp(this.files[0])"></label></div><p class="mut">A importação mescla o arquivo com os dados atuais (o registro do mesmo dia é sobrescrito). Senhas não são importadas.</p></div>`}
 async function cfgSet(k,v){try{await adm('cfg',k,v);CFG[k]=v;toast('Salvo')}catch(e){toast(e.message);render()}}
 async function admSenha(el){const v=el.value;if(!v)return;try{await adm('admin_senha',v);setSes({...SES,senha:v});el.value='';toast('Senha do administrador alterada')}catch(e){toast(e.message)}}
-async function bkp(){try{await loadRegs('*','2000-01-01','2100-01-01');const rows=Object.values(REG).flatMap(o=>Object.values(o));dl('backup_ponto_'+iso(new Date())+'.json',JSON.stringify({config:CFG,colaboradores:USERS,registros:rows},null,1),'application/json')}catch(e){toast(e.message)}}
+async function bkp(){try{await loadRegs('*','2000-01-01','2100-01-01');const rows=Object.values(REG).flatMap(o=>Object.values(o));dl('backup_ponto_'+iso(new Date())+'.json',JSON.stringify({config:CFG,colaboradores:USERS,registros:rows,regimes:REGIM},null,1),'application/json')}catch(e){toast(e.message)}}
+
+function tRegimes(){const u=USERS.find(x=>x.id===S.rc)||USERS[0];if(!u)return'';S.rc=u.id;
+  const L=REGIM.filter(x=>x.colab_id===u.id).sort((a,b)=>a.de<b.de?-1:1);
+  return`<div class="card"><h3>Mudança de regime por período (Turno ↔ ADM)</h3>
+  <p class="mut">Para quem passa uma parte do mês no turno e outra no ADM. Cada mudança vale <b>a partir da data informada</b> até a próxima mudança; antes da primeira vale a letra cadastrada na tabela acima (<b>${esc(u.letra||'sem letra')}</b>). Exemplo: turno B até 30/09 e ADM a partir de 01/10 → letra B na tabela + “01/10 → ADM”. O ponto é lançado normalmente (Entrada/Saída); a escala de cada dia e o PDF seguem o regime daquela data.</p>
+  <div class="row"><select onchange="S.rc=this.value;render()">${uOpts(u.id)}</select><label class="mut">A partir de <input type="date" id="rg_de"></label><select id="rg_rg">${['A','B','C','D','ADM'].map(l=>`<option>${l}</option>`).join('')}</select><button class="btn pri" onclick="addRg()">Adicionar</button></div>
+  ${L.length?`<div class="scroll"><table class="g"><thead><tr><th>A partir de</th><th>Regime</th><th></th></tr></thead><tbody>${L.map(x=>`<tr><td>${x.de.split('-').reverse().join('/')}</td><td>${esc(x.regime)}</td><td><button class="btn sm dg" onclick="delRg('${x.colab_id}','${x.de}')">Remover</button></td></tr>`).join('')}</tbody></table></div>`:'<p class="mut">Nenhuma mudança cadastrada para este colaborador.</p>'}</div>`}
+async function addRg(){const de=$('#rg_de').value,rg=$('#rg_rg').value;if(!de)return toast('Informe a data inicial.');
+  try{await adm('regime_add',S.rc,de,rg);REGIM=REGIM.filter(x=>!(x.colab_id===S.rc&&x.de===de));REGIM.push({colab_id:S.rc,de,regime:rg});toast('Salvo');render()}catch(e){toast(e.message)}}
+async function delRg(id,de){try{await adm('regime_del',id,de);REGIM=REGIM.filter(x=>!(x.colab_id===id&&x.de===de));render()}catch(e){toast(e.message)}}
+function legado(a){const us=JSON.parse(a.pt_users||'[]'),regs=[],cfg=JSON.parse(a.pt_cfg||'{}');delete cfg.admin;
+  Object.keys(a).filter(k=>k.startsWith('pt_reg_')).forEach(k=>{const id=k.slice(7);Object.entries(JSON.parse(a[k])).forEach(([dia,x])=>regs.push({colab_id:id,dia,ent:x.ent,sai:x.sai,he1:x.he1,he2:x.he2,obs:x.obs}))});
+  return{config:cfg,colaboradores:us.map(u=>({id:u.id,nome:u.nome,funcao:u.funcao,area:u.area,letra:u.letra})),registros:regs}}
+async function imp(f){if(!f)return;let a;try{a=JSON.parse(await f.text())}catch(e){return alert('Arquivo inválido: não é um JSON.')}
+  if(a&&(a.pt_users||Object.keys(a).some(k=>k.startsWith('pt_reg_'))))try{a=legado(a)}catch(e){return alert('Backup antigo não reconhecido.')}
+  if(!a||!(a.registros||a.colaboradores||a.config||a.regimes))return alert('Arquivo de backup não reconhecido.');
+  const nr=(a.registros||[]).length,nc=(a.colaboradores||[]).length;
+  if(!confirm('Importar '+nr+' registros de ponto e '+nc+' colaboradores?\n\nOs dados do arquivo serão mesclados aos atuais; o registro do mesmo dia é sobrescrito. Senhas não são importadas.'))return;
+  try{const j=await adm('importar',JSON.stringify(a));let m='Importação concluída ('+j.registros+' registros).';
+    if(j.novos&&j.novos.length)m+='\n\nColaboradores criados (anote as senhas iniciais):\n'+j.novos.map(x=>x.id+': '+x.senha).join('\n');
+    alert(m);await abrir(SES)}catch(e){toast(e.message)}}
 
 /* ---------- PDF (padrão FOLHA_DE_PONTO_.pdf) ---------- */
 const EP={D:'07:00 - 19:00',N:'19:00 - 07:00',C:'COMPENSAÇÃO',F:'FOLGA'};
-function sheet(u,ym){const[y,m]=ym.split('-').map(Number),r=reg(u.id);
-  const rows=periodDays(ym).map(d=>{const t=new Date(d+'T12:00'),x=r[d]||{};return`<tr><td class="dd">${p2(t.getDate())}/${MES[t.getMonth()]}</td><td class="wd">${WD[t.getDay()]}</td><td class="es">${EP[escala(u.letra,d)]||''}</td><td>${x.ent||''}</td><td>${x.sai||''}</td><td>${x.he1||''}</td><td>${x.he2||''}</td><td class="ob">${esc(x.obs||'')}</td></tr>`}).join('');
+const epdf=e=>e==='M'?'ADM '+(CFG.adm_ent||'08:00')+'-'+(CFG.adm_sai||'17:00'):(EP[e]||'');
+function sheet(u,ym){const[y,m]=ym.split('-').map(Number),r=reg(u.id),rs=[...new Set(periodDays(ym).map(d=>regime(u,d)))].filter(Boolean).join(' / ');
+  const rows=periodDays(ym).map(d=>{const t=new Date(d+'T12:00'),x=r[d]||{};return`<tr><td class="dd">${p2(t.getDate())}/${MES[t.getMonth()]}</td><td class="wd">${WD[t.getDay()]}</td><td class="es">${epdf(escala(u,d))}</td><td>${x.ent||''}</td><td>${x.sai||''}</td><td>${x.he1||''}</td><td>${x.he2||''}</td><td class="ob">${esc(x.obs||'')}</td></tr>`}).join('');
   const lg=[['07:00','19:00'],['07:00','19:00'],['19:00','07:00'],['19:00','07:00']].map(a=>`<tr><td>${a[0]}</td><td>${a[1]}</td></tr>`).join('')+'<tr><td colspan="2">COMPENSAÇÃO</td></tr>'+'<tr><td colspan="2">FOLGA</td></tr>'.repeat(3);
   return`<div class="pg"><div class="hd"><div><b>EMPRESA &nbsp; ${esc(CFG.empresa)}</b><div class="sm2">${esc(CFG.endereco)} &nbsp;&nbsp;&nbsp;&nbsp; CNPJ: &nbsp; ${esc(CFG.cnpj)}</div><b>${esc(CFG.titulo)}</b></div><img src="${LP}" style="height:32px" alt="LMI"></div>
-  <div class="info"><div><b>Colaborador:</b> ${esc(u.nome)}<br>Função: ${esc(u.funcao)}<br>Área: ${esc(u.area)}<br>Letra: ${esc(u.letra)}</div><div><b>Periodo</b> &nbsp; ${perLbl(ym)}<br>Ano: &nbsp;&nbsp;&nbsp;&nbsp; ${y}</div></div>
+  <div class="info"><div><b>Colaborador:</b> ${esc(u.nome)}<br>Função: ${esc(u.funcao)}<br>Área: ${esc(u.area)}<br>Letra: ${esc(rs)}</div><div><b>Periodo</b> &nbsp; ${perLbl(ym)}<br>Ano: &nbsp;&nbsp;&nbsp;&nbsp; ${y}</div></div>
   <table class="pt"><colgroup><col style="width:9%"><col style="width:13%"><col style="width:14%"><col style="width:9%"><col style="width:9%"><col style="width:8%"><col style="width:8%"><col style="width:30%"></colgroup>
   <thead><tr><th colspan="5" class="gr" style="text-align:left"><b>Período:</b> 16/${MES[m-1]} a 15/${MES[m%12]}</th><th colspan="2" class="gr">Hora Extra</th><th class="nb"></th></tr>
   <tr><th colspan="2">DIA</th><th>ESCALA</th><th>ENTRADA</th><th>SAÍDA</th><th>Entrada</th><th>Saída</th><th>Observação (motivo da HE)</th></tr></thead><tbody>${rows}</tbody></table>
-  <div class="ft"><table class="lg">${lg}</table><div class="sigs"><div class="ln">Assinatura do colaborador</div><div class="ln">Carimbo/ Assinatura do responsavel RH/DP</div></div></div></div>`}
+  <div class="ft"><div><table class="lg">${lg}</table>${rs.includes('ADM')?`<div class="sm2" style="margin-top:1mm">ADM: seg a sex, ${CFG.adm_ent||'08:00'} - ${CFG.adm_sai||'17:00'}</div>`:''}</div><div class="sigs"><div class="ln">Assinatura do colaborador</div><div class="ln">Carimbo/ Assinatura do responsavel RH/DP</div></div></div></div>`}
 async function pdf(id){if(!SES||(SES.role!=='admin'&&id!==SES.id))return;
   const list=id==='*'?USERS:USERS.filter(u=>u.id===id);if(!list.length)return;
   try{const[a,b]=rng();await loadRegs(id,a,b)}catch(e){return toast(e.message)}
